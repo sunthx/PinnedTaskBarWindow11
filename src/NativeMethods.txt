@@ -1,0 +1,7 @@
+﻿FindWindowEx
+FindWindow
+GetWindowRect
+SetParent
+IsWindow
+MoveWindow
+SetWindowPos
