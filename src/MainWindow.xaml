@@ -7,6 +7,13 @@
         mc:Ignorable="d"
         Title="MainWindow" 
         Height="40"
-        Width="40">
-    <Border Background="Red"/>
+        Background="Transparent"
+        Width="80">
+    <Border>
+        <Button
+            Click="ButtonBase_OnClick"
+            Content="我在这里" 
+            VerticalAlignment="Center" 
+            HorizontalAlignment="Center"/>
+    </Border>
 </local:PinnedTaskBarWindow>

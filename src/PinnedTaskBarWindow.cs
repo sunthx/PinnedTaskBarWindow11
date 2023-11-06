@@ -1,8 +1,8 @@
 ﻿using System;
-using System.ComponentModel;
+using System.Threading;
+using System.Timers;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Threading;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -13,106 +13,139 @@ namespace WindowInTaskBarDemo;
 public class PinnedTaskBarWindow : Window
 {
     //定义窗口的大小
-    private const int WindowWidth = 40;
+    private const int WindowWidth = 80;
     private const int WindowHeight = 40;
 
+    //窗口置顶
+    public const int WS_EX_TOOLWINDOW = 0x00000080;
+
+    //主Timer的句柄
+    private uint _mainTimerId;
+
     //当前窗口的句柄
-    private HWND _hwd;
+    private HWND _hwnd;
+
+    private bool _insertToTaskBar;
+
+    //最小化窗口句柄
+    private HWND _minHwd;
+
+    private RECT _minRect;
+
+    //通知栏句柄
+    private HWND _notifyHwd;
+
+    private RECT _notifyRect;
+
     //父窗口的句柄
     private HWND _parentHwnd;
 
     //任务栏句柄
     private HWND _taskBarHwd;
-    //工具栏句柄
-    private HWND _toolBarHwd;
-    //最小化窗口句柄
-    private HWND _minHwd;
-    //通知栏句柄
-    private HWND _notifyHwd;
 
     //RECT
     private RECT _taskBarRect;
+
+    //timer 刷新窗口位置
+    private readonly System.Timers.Timer _timer;
+
+    //工具栏句柄
+    private HWND _toolBarHwd;
     private RECT _toolBarRect;
-    private RECT _minRect;
-    private RECT _notifyRect;
 
     //当前窗口的RECT
     private RECT _windowRect;
 
-    //timer 刷新窗口位置
-    private DispatcherTimer _timer;
-
     public PinnedTaskBarWindow()
     {
-        WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
-        ShowInTaskbar = false;
+        WindowStyle = WindowStyle.None;
         Height = WindowHeight;
         Width = WindowWidth;
+        ShowInTaskbar = false;
 
-        Loaded += PinnedTaskBarWindow_Loaded;
-        _timer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(100)
-        };
-        _timer.Tick += _timer_Tick; ;
-        _timer.Start();
+        _timer = new System.Timers.Timer(100);
+        _timer.Elapsed += _main_timer;
+
+        Closing += PinnedTaskBarWindow_Closing;
+        SourceInitialized += PinnedTaskBarWindow_SourceInitialized;
     }
 
-    private void _timer_Tick(object? sender, EventArgs e)
+    private void PinnedTaskBarWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        _timer.Stop();
+    }
+
+    private void _main_timer(object? sender, ElapsedEventArgs e)
     {
         AdjustWindowPos();
     }
 
-    private void PinnedTaskBarWindow_Loaded(object sender, RoutedEventArgs e)
+    private void PinnedTaskBarWindow_SourceInitialized(object? sender, EventArgs e)
     {
-        _hwd = GetSafeHwnd();
-        _windowRect = new();
+        _windowRect = new RECT();
+        _hwnd = GetSafeHwnd();
 
         GetTaskBarRelatedWindowHandles();
         GetTaskBarRelatedWindowSizes();
 
-        //把程序窗口设置成任务栏的子窗口
-        _parentHwnd = PInvoke.SetParent(_hwd, _taskBarHwd);
+        var existStyle = PInvoke.GetWindowLong(
+            GetSafeHwnd(),
+            WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+
+        // 设置窗口的样式
+        PInvoke.SetWindowLong(GetSafeHwnd(),
+            WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE,
+            existStyle | WS_EX_TOOLWINDOW);
 
         AdjustWindowPos();
+        _timer.Start();
     }
 
     private void AdjustWindowPos()
     {
+        if (_hwnd == HWND.Null || !PInvoke.IsWindow(_hwnd))
+        {
+            return;
+        }
+
         GetTaskBarRelatedWindowSizes();
 
         var referenceRect = _notifyRect;
         var space = 50;
 
         _windowRect.left = referenceRect.left - space - WindowWidth;
-        _windowRect.top = referenceRect.top + (referenceRect.Height - WindowHeight) / 2;
-
-        // _windowRect.left = 200;
-        // _windowRect.top = 200;
+        _windowRect.top = _insertToTaskBar ?
+            (referenceRect.Height - WindowHeight) / 2 :
+            referenceRect.top + (referenceRect.Height - WindowHeight) / 2;
 
         PInvoke.MoveWindow(
-            GetSafeHwnd(),
-            _windowRect.X,
-            _windowRect.Y,
+            _hwnd,
+            _windowRect.left,
+            _windowRect.top,
             WindowWidth,
             WindowHeight,
-            false);
+            true);
 
-        // PInvoke.SetWindowPos(
-        //     GetSafeHwnd(),
-        //     _parentHwnd,
-        //     0,
-        //     0,
-        //     0,
-        //     0,
-        //     SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOMOVE);
-
+        PInvoke.SetWindowPos(
+            _hwnd,
+            new HWND(new IntPtr(-1)),
+            0,
+            0,
+            0,
+            0,
+            SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOMOVE);
     }
 
     private HWND GetSafeHwnd()
     {
-        return new HWND(new WindowInteropHelper(this).Handle);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+        {
+
+        }
+
+        return new HWND(hwnd);
     }
 
     private bool GetTaskBarRelatedWindowHandles()
@@ -147,28 +180,16 @@ public class PinnedTaskBarWindow : Window
     private bool GetTaskBarRelatedWindowSizes()
     {
         //获取任务栏矩形区域并返回结果，如果失败则返回false
-        if (!PInvoke.GetWindowRect(_taskBarHwd, out _taskBarRect))
-        {
-            return false;
-        }
+        if (!PInvoke.GetWindowRect(_taskBarHwd, out _taskBarRect)) return false;
 
         //获取工具栏矩形区域并返回结果，如果失败则返回false
-        if (!PInvoke.GetWindowRect(_toolBarHwd, out _toolBarRect))
-        {
-            return false;
-        }
+        if (!PInvoke.GetWindowRect(_toolBarHwd, out _toolBarRect)) return false;
 
         //获取最小化窗口矩形区域并返回结果，如果失败则返回false
-        if (!PInvoke.GetWindowRect(_minHwd, out _minRect))
-        {
-            return false;
-        }
+        if (!PInvoke.GetWindowRect(_minHwd, out _minRect)) return false;
 
         //获取通知栏矩形区域并返回结果，如果失败则返回false
-        if (!PInvoke.GetWindowRect(_notifyHwd, out _notifyRect))
-        {
-            return false;
-        }
+        if (!PInvoke.GetWindowRect(_notifyHwd, out _notifyRect)) return false;
 
         return true;
     }

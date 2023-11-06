@@ -2,6 +2,16 @@
 FindWindow
 GetWindowRect
 SetParent
+GetParent 
 IsWindow
 MoveWindow
 SetWindowPos
+GetLastError
+SetTimer
+KillTimer
+GetForegroundWindow
+SetWindowLong
+GetWindowLong
+GetWindowLongPtr
+SetWindowLongPtr
+GetWindow

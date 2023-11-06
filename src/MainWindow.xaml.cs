@@ -26,5 +26,10 @@ namespace WindowInTaskBarDemo
         {
             InitializeComponent();
         }
+
+        private void ButtonBase_OnClick(object sender, RoutedEventArgs e)
+        {
+            Environment.Exit(0);
+        }
     }
 }
